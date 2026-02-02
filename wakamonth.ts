@@ -432,6 +432,50 @@ yargs(hideBin(process.argv))
                             branch.total = (branch.total / remainingBranchesTotal) * remainingMinutes;
                         }
                     }
+
+                    // Round each branch to nearest precision increment
+                    for (const [branchName, branch] of Object.entries(dayResults[day].branches)) {
+                        branch.total = Math.round(branch.total / config.precision) * config.precision;
+                    }
+
+                    // Calculate total rounded minutes and cap at 8 hours if needed
+                    let totalRoundedMinutes = 0;
+                    for (const branch of Object.values(dayResults[day].branches)) {
+                        totalRoundedMinutes += branch.total;
+                    }
+
+                    if (totalRoundedMinutes > targetMinutes) {
+                        // Proportionally reduce all branches to cap at exactly 8 hours
+                        const reductionFactor = targetMinutes / totalRoundedMinutes;
+                        for (const [branchName, branch] of Object.entries(dayResults[day].branches)) {
+                            branch.total = branch.total * reductionFactor;
+                            branch.total = Math.round(branch.total / config.precision) * config.precision;
+                        }
+
+                        // Recalculate total after reduction and rounding
+                        totalRoundedMinutes = 0;
+                        for (const branch of Object.values(dayResults[day].branches)) {
+                            totalRoundedMinutes += branch.total;
+                        }
+
+                        // If still over due to rounding, trim excess from largest branch
+                        if (totalRoundedMinutes > targetMinutes) {
+                            const excess = totalRoundedMinutes - targetMinutes;
+                            // Find the largest branch
+                            let largestBranch = null;
+                            let largestTotal = 0;
+                            for (const [branchName, branch] of Object.entries(dayResults[day].branches)) {
+                                if (branch.total > largestTotal) {
+                                    largestTotal = branch.total;
+                                    largestBranch = branch;
+                                }
+                            }
+                            // Reduce largest branch by excess (rounded to precision)
+                            if (largestBranch) {
+                                largestBranch.total = Math.round((largestBranch.total - excess) / config.precision) * config.precision;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -441,11 +485,12 @@ yargs(hideBin(process.argv))
                     branch.total += spreadUnknown
                 }
 
-                // Only round if we're not filling the day
+                // Round to nearest precision increment
                 if (!argv.fillDay) {
-                    branch.total = (Math.ceil(branch.total / config.precision) * config.precision) / 60
+                    branch.total = (Math.round(branch.total / config.precision) * config.precision) / 60
                 } else {
-                    branch.total = branch.total / 60 // Just convert to hours without rounding
+                    // Already rounded in minutes above, just convert to hours
+                    branch.total = branch.total / 60
                 }
 
                 totalHours += branch.total
